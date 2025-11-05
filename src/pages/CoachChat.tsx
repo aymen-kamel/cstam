@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Send, Sparkles, Bell, BellOff } from "lucide-react";
+import { marked } from "marked";
 import coachAvatar from "@/assets/coach-avatar.png";
 import {
   requestNotificationPermission,
@@ -210,7 +211,14 @@ const CoachChat = () => {
                       : "bg-card shadow-soft border border-border/50"
                   }`}
                 >
-                  <p className="text-sm leading-relaxed break-words">{message.text}</p>
+                  {message.sender === "coach" ? (
+                    <div
+                      className="text-sm leading-relaxed break-words prose prose-sm max-w-none"
+                      dangerouslySetInnerHTML={{ __html: marked(message.text) }}
+                    />
+                  ) : (
+                    <p className="text-sm leading-relaxed break-words">{message.text}</p>
+                  )}
                   <span
                     className={`text-xs mt-1 block ${
                       message.sender === "user"
