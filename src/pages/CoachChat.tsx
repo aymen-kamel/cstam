@@ -3,11 +3,16 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Send, Sparkles, Volume2, VolumeX, Bell, BellOff } from "lucide-react";
+import { Send, Sparkles, Bell, BellOff } from "lucide-react";
 import coachAvatar from "@/assets/coach-avatar.png";
-import { getTextToSpeech } from "@/utils/textToSpeech";
-import { requestNotificationPermission, showNotification, playNotificationSound } from "@/utils/notificationUtils";
+import {
+  requestNotificationPermission,
+  showNotification,
+  playNotificationSound,
+} from "@/utils/notificationUtils";
 import { useToast } from "@/hooks/use-toast";
+
+const WS_URL = "ws://localhost:8000/ws";
 
 interface Message {
   id: string;
@@ -28,65 +33,72 @@ const CoachChat = () => {
   ]);
   const [inputValue, setInputValue] = useState("");
   const [isTyping, setIsTyping] = useState(false);
-  const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const ttsRef = useRef(getTextToSpeech());
+  const socketRef = useRef<WebSocket | null>(null);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
-
+  // 🔌 Connect WebSocket once
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    const socket = new WebSocket(WS_URL);
+    socketRef.current = socket;
 
-  // Initialize notifications on mount
-  useEffect(() => {
-    requestNotificationPermission().then((granted) => {
-      setNotificationsEnabled(granted);
-    });
+    socket.onopen = () => {
+      console.log("✅ Connected to backend WebSocket");
+      setIsConnected(true);
+    };
 
-    // Speak the initial message after a short delay
-    const timer = setTimeout(() => {
-      if (voiceEnabled && messages.length === 1) {
-        ttsRef.current.speak(messages[0].text);
+    socket.onmessage = (event) => {
+      console.log("🤖 Coach:", event.data);
+      const coachResponse: Message = {
+        id: Date.now().toString(),
+        text: event.data,
+        sender: "coach",
+        timestamp: new Date(),
+      };
+
+      playNotificationSound();
+      if (notificationsEnabled && document.hidden) {
+        showNotification("Coach Emma", event.data, coachAvatar);
       }
-    }, 1000);
+
+      setMessages((prev) => [...prev, coachResponse]);
+      setIsTyping(false);
+    };
+
+    socket.onclose = () => {
+      console.log("❌ WebSocket closed");
+      setIsConnected(false);
+    };
+
+    socket.onerror = (err) => {
+      console.error("⚠️ WebSocket error:", err);
+      setIsConnected(false);
+    };
 
     return () => {
-      clearTimeout(timer);
-      ttsRef.current.stop();
+      socket.close();
     };
   }, []);
 
-  const toggleVoice = () => {
-    const newState = ttsRef.current.toggle();
-    setVoiceEnabled(newState);
-    toast({
-      title: newState ? "Voice enabled 🔊" : "Voice muted 🔇",
-      description: newState 
-        ? "Coach Emma will speak her messages" 
-        : "Voice responses are now muted",
-    });
+  // 📜 Auto-scroll
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
+  useEffect(scrollToBottom, [messages]);
 
+  // 🔔 Toggle notifications
   const toggleNotifications = async () => {
     if (!notificationsEnabled) {
       const granted = await requestNotificationPermission();
       setNotificationsEnabled(granted);
-      if (granted) {
-        toast({
-          title: "Notifications enabled 🔔",
-          description: "You'll receive notifications for new messages",
-        });
-      } else {
-        toast({
-          title: "Notifications blocked",
-          description: "Please enable notifications in your browser settings",
-          variant: "destructive",
-        });
-      }
+      toast({
+        title: granted ? "Notifications enabled 🔔" : "Notifications blocked",
+        description: granted
+          ? "You'll receive notifications for new messages"
+          : "Please enable them in your browser settings",
+        variant: granted ? "default" : "destructive",
+      });
     } else {
       setNotificationsEnabled(false);
       toast({
@@ -96,48 +108,11 @@ const CoachChat = () => {
     }
   };
 
-  const generateCoachResponse = (userMessage: string): string => {
-    const lowerMessage = userMessage.toLowerCase();
-    
-    if (lowerMessage.includes("help") || lowerMessage.includes("advice")) {
-      return "I'd love to help! 💖 What specific area would you like guidance on? Meal planning, portion control, or maybe understanding your nutritional needs better?";
-    }
-    
-    if (lowerMessage.includes("tired") || lowerMessage.includes("energy")) {
-      return "I hear you! 🌟 Low energy can often be related to nutrition. Are you getting enough protein and complex carbs? Also, staying hydrated is key! How's your water intake today?";
-    }
-    
-    if (lowerMessage.includes("hungry") || lowerMessage.includes("snack")) {
-      return "Great question! 🍎 Try reaching for nutrient-dense snacks like nuts, Greek yogurt, or fresh fruit. These will keep you satisfied longer and provide steady energy. What sounds good to you?";
-    }
-    
-    if (lowerMessage.includes("goal") || lowerMessage.includes("target")) {
-      return "I love that you're thinking about your goals! 🎯 Remember, the best goals are specific, measurable, and realistic. What would you like to achieve with your nutrition?";
-    }
-    
-    if (lowerMessage.includes("thank") || lowerMessage.includes("thanks")) {
-      return "You're so welcome! 💕 I'm always here to support you. Remember, every healthy choice matters, and you're doing amazing!";
-    }
-    
-    if (lowerMessage.includes("hello") || lowerMessage.includes("hi") || lowerMessage.includes("hey")) {
-      return "Hello! 😊 It's wonderful to chat with you! How can I support your wellness journey today?";
-    }
-    
-    // Default responses
-    const defaultResponses = [
-      "That's really interesting! Tell me more about how that's been working for you. 🌿",
-      "I appreciate you sharing that with me! How do you feel about making some small, positive changes? 💪",
-      "You're doing great by thinking about your nutrition! What aspect would you like to focus on today? ✨",
-      "I'm here to help you succeed! Let's break this down together. What's your main concern right now? 💖",
-    ];
-    
-    return defaultResponses[Math.floor(Math.random() * defaultResponses.length)];
-  };
+  // 📨 Send message
+  const handleSendMessage = async () => {
+    if (!inputValue.trim() || !socketRef.current || socketRef.current.readyState !== WebSocket.OPEN)
+      return;
 
-  const handleSendMessage = () => {
-    if (!inputValue.trim()) return;
-
-    // Add user message
     const userMessage: Message = {
       id: Date.now().toString(),
       text: inputValue,
@@ -149,38 +124,7 @@ const CoachChat = () => {
     setInputValue("");
     setIsTyping(true);
 
-    // Simulate coach typing and response
-    setTimeout(() => {
-      const responseText = generateCoachResponse(inputValue);
-      const coachResponse: Message = {
-        id: (Date.now() + 1).toString(),
-        text: responseText,
-        sender: "coach",
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, coachResponse]);
-      setIsTyping(false);
-
-      // Play notification sound
-      playNotificationSound();
-
-      // Show browser notification if enabled and window not focused
-      if (notificationsEnabled && document.hidden) {
-        showNotification(
-          "Coach Emma",
-          responseText.substring(0, 100) + (responseText.length > 100 ? "..." : ""),
-          coachAvatar
-        );
-      }
-
-      // Speak the response if voice is enabled
-      if (voiceEnabled) {
-        // Wait a bit for the typing animation to finish
-        setTimeout(() => {
-          ttsRef.current.speak(responseText);
-        }, 300);
-      }
-    }, 1500);
+    socketRef.current.send(userMessage.text);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -206,7 +150,11 @@ const CoachChat = () => {
                 CE
               </AvatarFallback>
             </Avatar>
-            <div className="absolute -bottom-0.5 -right-0.5 sm:-bottom-1 sm:-right-1 w-4 h-4 sm:w-5 sm:h-5 bg-green-500 rounded-full border-2 border-card" />
+            <div
+              className={`absolute -bottom-0.5 -right-0.5 sm:-bottom-1 sm:-right-1 w-4 h-4 sm:w-5 sm:h-5 rounded-full border-2 border-card ${
+                isConnected ? "bg-green-500" : "bg-red-400"
+              }`}
+            />
           </div>
           <div className="flex-1 min-w-0">
             <h1 className="text-base sm:text-xl font-bold flex items-center gap-1.5 sm:gap-2 truncate">
@@ -214,25 +162,12 @@ const CoachChat = () => {
               <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 text-primary flex-shrink-0" />
             </h1>
             <p className="text-xs sm:text-sm text-muted-foreground truncate">
-              Your nutrition companion
+              {isConnected ? "Online" : "Offline"} • Your nutrition companion
             </p>
           </div>
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            className="rounded-xl h-10 w-10 sm:h-11 sm:w-11 flex-shrink-0 touch-manipulation"
-            onClick={toggleVoice}
-            title={voiceEnabled ? "Mute voice" : "Enable voice"}
-          >
-            {voiceEnabled ? (
-              <Volume2 className="w-4 h-4 sm:w-5 sm:h-5 text-primary" />
-            ) : (
-              <VolumeX className="w-4 h-4 sm:w-5 sm:h-5 text-muted-foreground" />
-            )}
-          </Button>
-          <Button 
-            variant="ghost" 
-            size="icon" 
+          <Button
+            variant="ghost"
+            size="icon"
             className="rounded-xl h-10 w-10 sm:h-11 sm:w-11 flex-shrink-0 touch-manipulation"
             onClick={toggleNotifications}
             title={notificationsEnabled ? "Disable notifications" : "Enable notifications"}
@@ -245,7 +180,7 @@ const CoachChat = () => {
           </Button>
         </motion.div>
 
-        {/* Messages Container */}
+        {/* Messages */}
         <div className="flex-1 overflow-y-auto mb-3 sm:mb-4 space-y-3 sm:space-y-4 px-1 sm:px-2">
           <AnimatePresence mode="popLayout">
             {messages.map((message, index) => (
@@ -254,7 +189,7 @@ const CoachChat = () => {
                 initial={{ opacity: 0, y: 20, scale: 0.95 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ delay: index * 0.1 }}
+                transition={{ delay: index * 0.05 }}
                 className={`flex gap-2 sm:gap-3 ${
                   message.sender === "user" ? "flex-row-reverse" : "flex-row"
                 }`}
@@ -301,7 +236,6 @@ const CoachChat = () => {
             ))}
           </AnimatePresence>
 
-          {/* Typing Indicator */}
           {isTyping && (
             <motion.div
               initial={{ opacity: 0, y: 10 }}
@@ -316,29 +250,14 @@ const CoachChat = () => {
               </Avatar>
               <div className="bg-card shadow-soft border border-border/50 rounded-2xl px-4 sm:px-5 py-2.5 sm:py-3">
                 <div className="flex gap-1">
-                  <motion.div
-                    animate={{ scale: [1, 1.2, 1] }}
-                    transition={{ repeat: Infinity, duration: 0.8 }}
-                    className="w-2 h-2 rounded-full bg-primary"
-                  />
-                  <motion.div
-                    animate={{ scale: [1, 1.2, 1] }}
-                    transition={{
-                      repeat: Infinity,
-                      duration: 0.8,
-                      delay: 0.2,
-                    }}
-                    className="w-2 h-2 rounded-full bg-primary"
-                  />
-                  <motion.div
-                    animate={{ scale: [1, 1.2, 1] }}
-                    transition={{
-                      repeat: Infinity,
-                      duration: 0.8,
-                      delay: 0.4,
-                    }}
-                    className="w-2 h-2 rounded-full bg-primary"
-                  />
+                  {[0, 0.2, 0.4].map((delay) => (
+                    <motion.div
+                      key={delay}
+                      animate={{ scale: [1, 1.2, 1] }}
+                      transition={{ repeat: Infinity, duration: 0.8, delay }}
+                      className="w-2 h-2 rounded-full bg-primary"
+                    />
+                  ))}
                 </div>
               </div>
             </motion.div>
@@ -346,33 +265,6 @@ const CoachChat = () => {
 
           <div ref={messagesEndRef} />
         </div>
-
-        {/* Suggested Quick Replies */}
-        {messages.length === 1 && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mb-3 sm:mb-4 flex gap-1.5 sm:gap-2 flex-wrap px-1"
-          >
-            {[
-              "I need help with meal planning 🍽️",
-              "I'm feeling tired today 😴",
-              "What's a healthy snack? 🍎",
-            ].map((suggestion) => (
-              <Button
-                key={suggestion}
-                variant="soft"
-                size="sm"
-                onClick={() => {
-                  setInputValue(suggestion);
-                }}
-                className="text-xs touch-manipulation h-9"
-              >
-                {suggestion}
-              </Button>
-            ))}
-          </motion.div>
-        )}
 
         {/* Input Area */}
         <motion.div
@@ -393,7 +285,7 @@ const CoachChat = () => {
               size="icon"
               className="h-12 w-12 sm:h-14 sm:w-14 flex-shrink-0 touch-manipulation"
               onClick={handleSendMessage}
-              disabled={!inputValue.trim() || isTyping}
+              disabled={!inputValue.trim() || isTyping || !isConnected}
             >
               <Send className="w-5 h-5" />
             </Button>
