@@ -3,33 +3,116 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
-import { 
-  User, 
-  Heart, 
-  Droplets, 
-  Moon, 
-  Flame, 
+import {
+  User,
+  Heart,
+  Droplets,
+  Moon,
+  Flame,
   TrendingUp,
   Award,
   Calendar,
   Settings
 } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { useEffect, useState } from "react";
+import { doc, getDoc, setDoc } from "firebase/firestore";
+import { db } from "@/firebase/config";
 
 const Profile = () => {
-  // Mock user data
-  const userData = {
-    name: "Sarah",
+  const { currentUser } = useAuth();
+  const [userData, setUserData] = useState({
+    name: "User",
     avatar: "",
-    initials: "SA",
+    initials: "U",
     dailyGoals: {
-      calories: { current: 1450, target: 2000 },
-      water: { current: 6, target: 8 },
-      steps: { current: 7234, target: 10000 },
-      sleep: { current: 7, target: 8 },
+      calories: { current: 0, target: 2000 },
+      water: { current: 0, target: 8 },
+      steps: { current: 0, target: 10000 },
+      sleep: { current: 0, target: 8 },
     },
     wellnessScore: 85,
     streak: 12,
+    lastReset: Date.now(),
+  });
+
+  const initialDailyGoals = {
+    calories: { current: 0, target: 2000 },
+    water: { current: 0, target: 8 },
+    steps: { current: 0, target: 10000 },
+    sleep: { current: 0, target: 8 },
   };
+
+  useEffect(() => {
+    if (currentUser) {
+      const fetchUserData = async () => {
+        try {
+          const userDocRef = doc(db, "users", currentUser.uid);
+          const userDoc = await getDoc(userDocRef);
+
+          if (userDoc.exists()) {
+            const data = userDoc.data();
+            const now = Date.now();
+            const lastReset = data.lastReset || 0;
+            const oneDay = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+
+            // Check if 24 hours have passed since last reset
+            if (now - lastReset >= oneDay) {
+              // Reset daily goals
+              const updatedData = {
+                ...data,
+                dailyGoals: initialDailyGoals,
+                lastReset: now,
+              };
+              await setDoc(userDocRef, updatedData);
+              setUserData(prev => ({
+                ...prev,
+                name: updatedData.name || currentUser.displayName || "User",
+                avatar: updatedData.avatar || currentUser.photoURL || "",
+                initials: (updatedData.name || currentUser.displayName || "User").split(' ').map(n => n[0]).join('').toUpperCase(),
+                dailyGoals: updatedData.dailyGoals,
+                lastReset: updatedData.lastReset,
+              }));
+            } else {
+              setUserData(prev => ({
+                ...prev,
+                name: data.name || currentUser.displayName || "User",
+                avatar: data.avatar || currentUser.photoURL || "",
+                initials: (data.name || currentUser.displayName || "User").split(' ').map(n => n[0]).join('').toUpperCase(),
+                dailyGoals: data.dailyGoals || initialDailyGoals,
+                lastReset: data.lastReset || now,
+              }));
+            }
+          } else {
+            // Create user document if it doesn't exist
+            const userDataToSave = {
+              name: currentUser.displayName || "User",
+              email: currentUser.email,
+              avatar: currentUser.photoURL || "",
+              dailyGoals: initialDailyGoals,
+              wellnessScore: 85,
+              streak: 12,
+              lastReset: Date.now(),
+              createdAt: new Date(),
+            };
+            await setDoc(userDocRef, userDataToSave);
+            setUserData(prev => ({
+              ...prev,
+              name: userDataToSave.name,
+              avatar: userDataToSave.avatar,
+              initials: userDataToSave.name.split(' ').map(n => n[0]).join('').toUpperCase(),
+              dailyGoals: userDataToSave.dailyGoals,
+              lastReset: userDataToSave.lastReset,
+            }));
+          }
+        } catch (error) {
+          console.error("Error fetching user data:", error);
+        }
+      };
+
+      fetchUserData();
+    }
+  }, [currentUser]);
 
   const goalCards = [
     {

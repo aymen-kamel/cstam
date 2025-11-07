@@ -1,22 +1,19 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { Upload, Sparkles, Camera, Loader2 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { Camera } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { analyzeMealImage, type MealAnalysis } from "@/services/mealDetectionService";
+import api from "@/api/api";
 
 const MealUpload = () => {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [description, setDescription] = useState("");
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const navigate = useNavigate();
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [mealDescription, setMealDescription] = useState<string>("");
   const { toast } = useToast();
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      setSelectedFile(file);
       const reader = new FileReader();
       reader.onloadend = () => {
         setImagePreview(reader.result as string);
@@ -25,42 +22,34 @@ const MealUpload = () => {
     }
   };
 
-  const handleAnalyze = async () => {
-    if (!imagePreview) {
-      toast({
-        title: "Oops! 🤔",
-        description: "Please upload a photo of your meal for analysis",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setIsAnalyzing(true);
-
-    try {
-      // Analyze the meal image
-      const analysis = await analyzeMealImage(imagePreview, description);
-      
-      // Store analysis results in session storage to pass to Results page
-      sessionStorage.setItem("mealAnalysis", JSON.stringify(analysis));
-      
-      toast({
-        title: "Success! 🎉",
-        description: "Meal analyzed successfully",
-      });
-      
-      navigate("/results");
-    } catch (error: any) {
-      console.error("Analysis error:", error);
-      toast({
-        title: "Analysis Failed",
-        description: error.message || "Failed to analyze meal",
-        variant: "destructive",
-      });
-    } finally {
-      setIsAnalyzing(false);
-    }
+  const handleSendImage = async () => {
+    if (!selectedFile) return;
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      try {
+        const payload = { image: reader.result };
+        if (mealDescription.trim()) {
+          payload.description = mealDescription.trim();
+        }
+        const response = await api.post('/upload_image', payload);
+        console.log(response);
+        toast({
+          title: "Success",
+          description: "Image uploaded successfully!",
+        });
+      } catch (error) {
+        console.error('Upload failed:', error);
+        toast({
+          title: "Error",
+          description: "Failed to upload image.",
+          variant: "destructive",
+        });
+      }
+    };
+    reader.readAsDataURL(selectedFile);
   };
+
+
 
   return (
     <div className="min-h-screen gradient-warm pb-20">
@@ -71,9 +60,9 @@ const MealUpload = () => {
           animate={{ opacity: 1, y: 0 }}
           className="text-center mb-8"
         >
-          <h1 className="text-3xl font-bold mb-2">Analyze Your Meal 🍽️</h1>
+          <h1 className="text-3xl font-bold mb-2">Upload Your Meal 🍽️</h1>
           <p className="text-muted-foreground">
-            Upload a photo or describe what you ate
+            Upload a photo of what you ate
           </p>
         </motion.div>
 
@@ -133,57 +122,41 @@ const MealUpload = () => {
             </label>
           </div>
 
-          {/* Description Input */}
-          <div className="mb-6">
-            <label className="block text-sm font-semibold mb-2">
-              Meal Description (Optional)
-            </label>
-            <Textarea
-              placeholder="E.g., Grilled chicken with quinoa and steamed broccoli 🥗"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="rounded-2xl min-h-[120px] resize-none"
-            />
-          </div>
+          {/* Meal Description */}
+          {imagePreview && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.15 }}
+              className="mb-6"
+            >
+              <label htmlFor="meal-description" className="block text-sm font-medium mb-2">
+                Describe your meal (optional)
+              </label>
+              <textarea
+                id="meal-description"
+                value={mealDescription}
+                onChange={(e) => setMealDescription(e.target.value)}
+                placeholder="e.g., Grilled chicken salad with avocado and tomatoes..."
+                className="w-full p-3 rounded-2xl border border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                rows={3}
+              />
+            </motion.div>
+          )}
 
-          {/* Analyze Button */}
-          <Button
-            variant="hero"
-            size="lg"
-            className="w-full"
-            onClick={handleAnalyze}
-            disabled={isAnalyzing}
-          >
-            {isAnalyzing ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Analyzing with AI...
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-5 h-5" />
-                Analyze My Meal
-              </>
-            )}
-          </Button>
-        </motion.div>
+          {/* Send Button */}
+          {imagePreview && (
+            <motion.button
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+              onClick={handleSendImage}
+              className="w-full bg-primary text-primary-foreground rounded-2xl py-3 font-semibold hover:bg-primary/90 transition-colors"
+            >
+              Send Image
+            </motion.button>
+          )}
 
-        {/* Tips Card */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="bg-accent/50 rounded-2xl p-5 border border-border/50"
-        >
-          <h3 className="font-semibold mb-2 flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-primary" />
-            Quick Tips
-          </h3>
-          <ul className="text-sm text-muted-foreground space-y-1.5">
-            <li>• Take photos in good lighting for better results</li>
-            <li>• Include all items in your meal</li>
-            <li>• Add details about portion sizes if possible</li>
-          </ul>
         </motion.div>
       </div>
     </div>
